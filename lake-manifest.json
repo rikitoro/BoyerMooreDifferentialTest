@@ -1,0 +1,16 @@
+{"version": "1.3.0",
+ "packagesDir": ".lake/packages",
+ "packages":
+ [{"url": "https://github.com/rikitoro/BoyerMooreVerification.git",
+   "type": "git",
+   "subDir": null,
+   "scope": "",
+   "rev": "b2238d8f5b04b5856fcff318f94d17452672c10b",
+   "name": "BoyerMooreVerification",
+   "manifestFile": "lake-manifest.json",
+   "inputRev": "b2238d8f5b04b5856fcff318f94d17452672c10b",
+   "inherited": false,
+   "configFile": "lakefile.lean"}],
+ "name": "BoyerMooreDifferentialTest",
+ "lakeDir": ".lake",
+ "fixedToolchain": false}
