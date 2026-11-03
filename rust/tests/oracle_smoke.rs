@@ -4,9 +4,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-#[test]
-fn fixed_input_matches_lean() {
-  let votes = vec![1_u32, 1, 2];
+fn lean_candidate(votes: &[u32]) -> u32 {
 
   let root = Path::new(env!("CARGO_MANIFEST_DIR"))
     .parent()
@@ -41,13 +39,43 @@ fn fixed_input_matches_lean() {
   assert_eq!(response["id"], json!(1));
   assert!(response.get("error").is_none(), "Lean のエラー: {response}");
 
-  let lean_candidate = response["candidate"]
+  let candidate = response["candidate"]
     .as_u64()
     .expect("candidate が非負整数ではありません");
-  let rust_candidate = majority_candidate(&votes);
 
-  println!("votes={votes:?}, Lean={lean_candidate}, rust={rust_candidate}");
-  assert_eq!(lean_candidate, 1);
-  assert_eq!(u64::from(rust_candidate), lean_candidate);
+  u32::try_from(candidate).expect("candidate が u32 の範囲外です")
+}
 
+#[test]
+fn fixed_inputs_match_lean() {
+  let cases: Vec<(&str, Vec<u32>, u32)> = vec![
+    ("empty", vec![], 0),
+    ("single_zero", vec![0], 0),
+    ("single", vec![7], 7),
+    ("all_equal", vec![7, 7, 7, 7], 7),
+    ("majority_at_start", vec![1, 1, 2], 1),
+    ("majority_at_end", vec![1, 2, 2], 2),
+    ("majority_after_cancellation", vec![1, 2, 3, 3, 3], 3),
+    ("alternating_majority", vec![1, 2, 1, 2, 1], 1),
+    ("tie", vec![1, 2], 1),
+    ("alternating_tie", vec![1, 2, 1, 2], 1),
+    ("all_distinct", vec![1, 2, 3, 4], 3),
+    ("max_u32", vec![u32::MAX, 0, u32::MAX], u32::MAX),
+    ("zero_majority", vec![0, u32::MAX, 0], 0),
+    ("max_length_all_equal", vec![7; 4096], 7),
+    ("max_length_tie", vec![1, 2].repeat(2048), 1),  
+  ];
+
+  for (name, votes, expected) in &cases {
+    let lean = lean_candidate(votes);
+    let rust = majority_candidate(votes);
+
+    println!(
+      "{name}: len={}, expected={expected}, Lean={lean}, Rust={rust}",
+      votes.len()
+    );
+
+    assert_eq!(lean, *expected, "{name}: Lean の結果が期待値と異なります");
+    assert_eq!(rust, lean, "{name}: Rust と Leanの結果が異なります");
+  }
 }
