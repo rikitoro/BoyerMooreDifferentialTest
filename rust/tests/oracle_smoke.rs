@@ -3,6 +3,9 @@ use serde_json::{json, Value};
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use proptest::prelude::*;
+use proptest::test_runner::FileFailurePersistence;
+
 
 fn lean_candidate(votes: &[u32]) -> u32 {
 
@@ -78,4 +81,26 @@ fn fixed_inputs_match_lean() {
     assert_eq!(lean, *expected, "{name}: Lean の結果が期待値と異なります");
     assert_eq!(rust, lean, "{name}: Rust と Leanの結果が異なります");
   }
+}
+
+proptest! {
+  #![proptest_config(ProptestConfig {
+    cases: 100,
+    failure_persistence: Some(Box::new(
+      FileFailurePersistence::WithSource("proptest-regressions")
+    )),
+    ..ProptestConfig::default()
+  })]
+
+  #[test]
+  fn random_inputs_match_lean(
+    votes in proptest::collection::vec(0_u32..4, 0..=64)
+  ) {
+    let lean = lean_candidate(&votes);
+    let rust = majority_candidate(&votes);
+
+    prop_assert_eq!(rust, lean, "votes = {:?}", votes);
+  }
+
+
 }
