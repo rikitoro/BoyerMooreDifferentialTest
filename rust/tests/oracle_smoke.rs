@@ -83,6 +83,23 @@ fn fixed_inputs_match_lean() {
   }
 }
 
+fn inputs_with_majority () -> impl Strategy<Value = (u32, Vec<u32>)> {
+  (
+    0_u32..4,
+    proptest::collection::vec(0_u32..4, 0..=32),
+
+  )
+    .prop_flat_map(|(majority, extra_votes)| {
+      let mut votes = vec![majority; extra_votes.len() + 1];
+      votes.extend(extra_votes);
+
+      (Just(majority), Just(votes).prop_shuffle())
+    })
+}
+
+
+
+
 proptest! {
   #![proptest_config(ProptestConfig {
     cases: 100,
@@ -102,5 +119,22 @@ proptest! {
     prop_assert_eq!(rust, lean, "votes = {:?}", votes);
   }
 
+  #[test]
+  fn random_majority_matches_lean(
+    (majority, votes) in inputs_with_majority()
+  ) {
+    let count = votes.iter().filter(|&&v| v == majority).count();
+    prop_assert!(
+      count > votes.len() / 2,
+      "多数派が成立していません: majority={}, votes={:?}",
+      majority, votes
+    );
+
+    let lean = lean_candidate(&votes);
+    let rust = majority_candidate(&votes);
+
+    prop_assert_eq!(lean, majority, "Lean: votes = {:?}", votes);
+    prop_assert_eq!(rust, majority, "Rust: votes = {:?}", votes);
+  }
 
 }
