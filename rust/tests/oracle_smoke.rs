@@ -178,9 +178,9 @@ proptest! {
     let correct = majority_candidate(&votes);
     let buggy = buggy_majority_candidate(&votes);
 
-    prop_assert_eq!(lean, majority, "Lean: voites = {:?}", votes);
-    prop_assert_eq!(correct, lean, "本来のRust: voites = {:?}", votes);
-    prop_assert_eq!(buggy, lean, "バグ入りRust: voites = {:?}", votes);
+    prop_assert_eq!(lean, majority, "Lean: votes = {:?}", votes);
+    prop_assert_eq!(correct, lean, "本来のRust: votes = {:?}", votes);
+    prop_assert_eq!(buggy, lean, "バグ入りRust: votes = {:?}", votes);
   }
 }
 
