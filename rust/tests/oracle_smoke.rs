@@ -138,3 +138,65 @@ proptest! {
   }
 
 }
+
+// テスト専用 同じ票を読んだ時にカウントを減らすバグを含む
+fn buggy_majority_candidate(votes: &[u32]) -> u32 {
+  let mut candidate = 0;
+  let mut count = 0_usize;
+
+  for &vote in votes {
+    if count == 0 {
+      candidate = vote;
+      count = 1;
+    } else if vote == candidate {
+      count -= 1; // バグ: 正しくは count += 1
+    } else {
+      count -= 1;
+    }
+  }
+  candidate
+}
+
+proptest! {
+  #![proptest_config(ProptestConfig {
+    cases: 100,
+    failure_persistence: Some(Box::new(
+      FileFailurePersistence::WithSource("mutation-regressions")
+    )),
+    ..ProptestConfig::default()
+  })]
+
+  #[test]
+  #[ignore = "意図的に失敗するバグ検出実験"]
+  fn mutant_matches_lean(
+    (majority, votes) in inputs_with_majority()
+  ) {
+    let count = votes.iter().filter(|&&v| v == majority).count();
+    prop_assert!(count > votes.len() / 2, "多数派の生成条件に違反: {:?}", votes);
+
+    let lean = lean_candidate(&votes);
+    let correct = majority_candidate(&votes);
+    let buggy = buggy_majority_candidate(&votes);
+
+    prop_assert_eq!(lean, majority, "Lean: voites = {:?}", votes);
+    prop_assert_eq!(correct, lean, "本来のRust: voites = {:?}", votes);
+    prop_assert_eq!(buggy, lean, "バグ入りRust: voites = {:?}", votes);
+  }
+}
+
+#[test]
+#[ignore = "BM_VOTESに縮小された反例のJSON配列を指定して実行する"]
+fn replay_mutant_counterexample() {
+  let input = std::env::var("BM_VOTES")
+    .expect("BM_VOTESに反例を指定する。例: BM_VOTES='[0,0,1]'");
+  let votes: Vec<u32> = serde_json::from_str(&input)
+    .expect("BM_VOTESはu32のJSON配列である必要がある");
+
+  let lean = lean_candidate(&votes);
+  let correct = majority_candidate(&votes);
+  let buggy = buggy_majority_candidate(&votes);
+
+  println!("votes={votes:?}, Lean={lean}, Rust={correct}, buggy={buggy}");
+  assert_eq!(correct, lean, "本来のRust実装がLeanと一致しない");
+  assert_ne!(buggy, lean, "指定した入力ではバグを再現できない");
+}
