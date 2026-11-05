@@ -35,9 +35,13 @@ PROPTEST_RNG_SEED=20261103 \
 test fixed_inputs_match_lean ... ok
 test random_inputs_match_lean ... ok
 test random_majority_matches_lean ... ok
+test mutant_matches_lean ... ignored
+test replay_mutant_counterexample ... ignored
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; ...
+test result: ok. 3 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; ...
 ```
+
+バグ検出・反例再現用の2テストは `#[ignore]` により通常実行から除外する。実行方法は後述する。
 
 Rust単体テスト7件：
 
@@ -86,7 +90,7 @@ flowchart TD
 
 入力生成には `proptest` を用いる。`lean_candidate` 関数は入力1件ごとにLeanプロセスを起動し、候補値を取得する。
 
-### テスト一覧
+### 通常テスト
 
 | テスト関数 | 入力数 | 入力の範囲・特徴 | 確認内容 |
 | --- | ---: | --- | --- |
@@ -94,7 +98,7 @@ flowchart TD
 | `random_inputs_match_lean` | 100件 | 値0〜3、長さ0〜64 | LeanとRustの一致 |
 | `random_majority_matches_lean` | 100件 | 値0〜3、奇数長1〜65、多数派あり | 多数派条件の成立と、Lean・Rustの結果が多数派と一致 |
 
-設定は固定入力15件、ランダム入力200件である。Cargoの件数はテスト関数単位であり、成功時は `3 passed` となる。ランダム入力の成功時ログは省略する。
+設定は固定入力15件、新規ランダム入力200件である。保存済みseedの再試行は別途行う。Cargoの件数はテスト関数単位であり、通常実行は `3 passed; 2 ignored` となる。ランダム入力の成功時ログは省略する。
 
 ### 多数派あり入力の生成
 
@@ -105,6 +109,48 @@ flowchart TD
 3. 全体を `prop_shuffle()` で並べ替える。
 
 全長は `2n + 1`、`a` は少なくとも `n + 1` 個となり、過半数条件を満たす。`prop_flat_map` による再構成とシャッフルは、縮小時にもこの条件を保つ。
+
+## バグ検出・縮小・再現
+
+`buggy_majority_candidate` は、同じ票を読んだ際の `count += 1` を `count -= 1` に置き換えたテスト専用実装である。
+
+| テスト関数 | 検査内容 | 期待する結果 |
+| --- | --- | --- |
+| `mutant_matches_lean` | 多数派条件、Leanと本来のRustの結果を確認し、バグ入り実装と比較 | 不一致を検出して `FAILED` |
+| `replay_mutant_counterexample` | 指定した入力で、本来のRustはLeanと一致し、バグ入り実装は不一致となることを確認 | 不一致が再現すれば `ok` |
+
+### 不一致の検出と縮小
+
+```bash
+PROPTEST_RNG_SEED=20261103 \
+  cargo test --locked --manifest-path rust/Cargo.toml \
+  --test oracle_smoke mutant_matches_lean \
+  -- --ignored --exact --nocapture
+```
+
+このコマンドは、バグ入りRustの比較不一致による `FAILED` が期待結果である。出力の `minimal failing input` に縮小後の入力を示す。縮小結果は数学的な最小性を保証しない。
+
+確認済みの反例は `majority = 0`、`votes = [0, 0, 1]` である。Leanと本来のRustは `0`、バグ入り実装は `1` を返す。
+
+### 反例の再現
+
+縮小された配列を `BM_VOTES` にJSON形式で指定する。
+
+```bash
+BM_VOTES='[0,0,1]' \
+  cargo test --locked --manifest-path rust/Cargo.toml \
+  --test oracle_smoke replay_mutant_counterexample \
+  -- --ignored --exact --nocapture
+```
+
+出力例：
+
+```text
+votes=[0, 0, 1], Lean=0, Rust=0, buggy=1
+test replay_mutant_counterexample ... ok
+```
+
+このテストの成功条件は、本来のRustとLeanの一致、およびバグ入り実装の不一致の再現である。`BM_VOTES` には実際に得られた反例を指定する。
 
 ## Leanオラクルの入出力
 
@@ -145,17 +191,17 @@ flowchart TD
 | `rust/Cargo.toml` | Rustプロジェクトとテスト用依存関係 |
 | `rust/Cargo.lock` | Rust側の依存バージョン |
 | `rust/src/lib.rs` | Rust実装と単体テスト7件 |
-| `rust/tests/oracle_smoke.rs` | オラクル呼び出し、入力生成、差分テスト |
+| `rust/tests/oracle_smoke.rs` | オラクル呼び出し、入力生成、差分テスト、バグ検出・反例再現 |
 
 ## テスト設定
 
 ### テスト件数
 
-`rust/tests/oracle_smoke.rs` の `cases: 100` で各ランダムテストの件数を指定する。この値は `PROPTEST_CASES` 環境変数より優先される。
+`rust/tests/oracle_smoke.rs` の各 `proptest!` ブロックにある `cases: 100` で件数を指定する。この値は `PROPTEST_CASES` 環境変数より優先される。不一致を検出すると縮小へ進む。
 
 ### 再現用seed
 
-`PROPTEST_RNG_SEED` でseedを指定する。同じコード・依存関係・設定・seedで同じ入力系列を再現する。探索する入力を変える場合はseedを変更する。
+`PROPTEST_RNG_SEED` でseedを指定する。同じコード・依存関係・設定・seedで同じ新規入力系列を再現する。探索する入力を変える場合はseedを変更する。
 
 依存バージョンは `Cargo.lock` で固定し、実行時は `--locked` を指定する。
 
@@ -163,22 +209,24 @@ flowchart TD
 
 `proptest` は失敗を再現する小さな入力への縮小を試みる。再現用seedの保存先は以下である。
 
-```text
-rust/tests/oracle_smoke.proptest-regressions
-```
+| 保存先 | 用途 |
+| --- | --- |
+| `rust/tests/oracle_smoke.proptest-regressions` | 通常のランダムテスト |
+| `rust/tests/oracle_smoke.mutation-regressions` | バグ検出実験 |
 
-保存したseedは次回実行時に再試行する。生成器や依存関係の変更後は、同じ入力の再現を保証しない。
+これらのファイルはGitで管理している。保存済みseedは新規入力の生成前に再試行するため、`PROPTEST_RNG_SEED` を変更しても過去の失敗ケースを検査する。生成器や依存関係の変更後は、同じ入力の再現を保証しない。
+
+seedによる再試行と、`BM_VOTES` による具体的な入力の再現に対応する。反例・実行環境のJSONへの自動保存は未対応である。
 
 ## 検証範囲と課題
 
-Rust単体テスト7件と差分テスト3種類の成功を確認済みである。ランダムテストの確認用seedは `20261103` である。
+Rust単体テスト7件、通常の差分テスト3種類、バグ検出・縮小・seed保存・反例再現の動作を確認済みである。ランダムテストの確認用seedは `20261103` である。
 
 Leanの証明対象は参照モデルである。差分テストは実行した入力上の一致を確認する。Rust実装の全入力に対する正当性や、JSON変換・実行基盤を含む全体の正しさは未証明である。
 
 未確認・未対応の項目：
 
-- [ ] バグ入り実装による検出・縮小・保存・再現の動作確認
 - [ ] 入力生成の値域・長さ・配置の拡張
-- [ ] 具体的な反例と実行環境の保存・再生
+- [ ] 反例・実行環境のJSONへの自動保存とファイル指定による再生
 - [ ] Leanプロセスの再利用とタイムアウト処理
 - [ ] 差分テストのGitHub Actionsへの組込み
